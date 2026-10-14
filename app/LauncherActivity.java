@@ -1,4 +1,3 @@
-
 package org.openbor.engine;
 
 import android.app.Activity;
@@ -74,7 +73,7 @@ public class LauncherActivity extends Activity {
         root.addView(title);
 
         TextView credit = new TextView(this);
-        credit.setText("port by base64E");
+        credit.setText("port by base64E  •  @android_port");
         credit.setTextColor(Color.rgb(95, 190, 255));
         credit.setGravity(Gravity.CENTER);
         root.addView(credit);
@@ -232,7 +231,7 @@ public class LauncherActivity extends Activity {
             if (pak != null) {
                 try (InputStream in = getAssets().open(pak);
                      OutputStream out = new FileOutputStream(
-                         new File(paks, pak)
+                         new File(paks, "1.0.0.pak")
                      )) {
                     byte[] buffer = new byte[8192];
                     int n;
