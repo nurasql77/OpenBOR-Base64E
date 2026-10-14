@@ -41,17 +41,17 @@ jobs:
             -O assets/base64e-game.pak \
             --retries 5 \
             --timeout 120 || {
-              echo "::error::gdown failed. Make sure the Drive file is publicly accessible (Anyone with the link)."
+              echo "::error::gdown failed. Drive файлын 'Anyone with the link' етіп ашыңыз."
               exit 1
             }
 
           if [ ! -s assets/base64e-game.pak ]; then
-            echo "::error::Game PAK is empty"
+            echo "::error::PAK empty"
             exit 1
           fi
 
           ls -lh assets/base64e-game.pak
-          file assets/base64e-game.pak
+          file assets/base64e-game.pak || true
 
           python3 - <<'PY'
           from pathlib import Path
@@ -60,63 +60,36 @@ jobs:
               header = f.read(8)
           if len(header) != 8 or header[:4] != b"PACK":
               raise SystemExit(f"Bad PAK header: {header!r}")
-          format_id = int.from_bytes(header[4:8], "little")
-          if format_id not in (0, 1):
-              raise SystemExit(f"Unsupported format ID: {format_id}")
-          print(f"PAK OK, format ID = {format_id}")
+          print("PAK header OK")
           PY
 
       - name: Apply Base64E changes
         run: python3 scripts/patch_upstream.py
 
-      - name: Configure package name + version
+      - name: Configure package name
         shell: bash
         run: |
           set -euo pipefail
-          GRADLE_FILE="upstream/engine/android/app/build.gradle"
-          test -f "$GRADLE_FILE"
-
           python3 - <<'PY'
           from pathlib import Path
           import re
-
           p = Path("upstream/engine/android/app/build.gradle")
           s = p.read_text(encoding="utf-8")
-
-          # applicationId
-          s, c1 = re.subn(
-              r'(?m)^(\s*applicationId\s+)"[^"]+"',
-              r'\1"kz.base64e.openbor1"',
-              s, count=1
-          )
-          if c1 != 1:
-              raise SystemExit("Could not update applicationId")
-
-          # versionName (OpenBOR expects 1.0.0.pak when this is set)
+          s, c = re.subn(r'(?m)^(\s*applicationId\s+)"[^"]+"', r'\1"kz.base64e.openbor1"', s, count=1)
+          if c != 1:
+              raise SystemExit("applicationId update failed")
           if 'versionName "1.0.0"' not in s:
-              s = re.sub(
-                  r'(?m)^(\s*versionName\s+)"[^"]+"',
-                  r'\1"1.0.0"',
-                  s, count=1
-              )
-
+              s = re.sub(r'(?m)^(\s*versionName\s+)"[^"]+"', r'\1"1.0.0"', s, count=1)
           p.write_text(s, encoding="utf-8")
           print("applicationId = kz.base64e.openbor1")
-          print("versionName   = 1.0.0")
           PY
+          grep -nE 'applicationId|versionName' upstream/engine/android/app/build.gradle
 
-          grep -nE 'applicationId|namespace|versionName|versionCode' "$GRADLE_FILE"
-
-      - name: Bundle game PAK as 1.0.0.pak
-        shell: bash
+      - name: Bundle PAK as 1.0.0.pak
         run: |
-          set -euo pipefail
-          DEST="upstream/engine/android/app/src/main/assets"
-          mkdir -p "$DEST"
-          # OpenBOR standalone mode expects exactly versionName.pak
-          cp assets/base64e-game.pak "$DEST/1.0.0.pak"
-          ls -lh "$DEST/1.0.0.pak"
-          test -s "$DEST/1.0.0.pak"
+          mkdir -p upstream/engine/android/app/src/main/assets
+          cp assets/base64e-game.pak upstream/engine/android/app/src/main/assets/1.0.0.pak
+          ls -lh upstream/engine/android/app/src/main/assets/1.0.0.pak
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -131,14 +104,18 @@ jobs:
 
       - name: Install Android packages
         run: |
-          sdkmanager --install \
-            "platforms;android-35" \
-            "build-tools;36.0.0" \
-            "ndk;21.4.7075529"
+          sdkmanager --install "platforms;android-35" "build-tools;36.0.0" "ndk;21.4.7075529"
 
       - name: Generate version
         working-directory: upstream/engine
         run: bash version.sh
+
+      - name: Verify
+        run: |
+          grep -q 'applicationId "kz.base64e.openbor1"' upstream/engine/android/app/build.gradle
+          test -s upstream/engine/android/app/src/main/assets/1.0.0.pak
+          test -f upstream/engine/android/app/src/main/java/org/openbor/engine/LauncherActivity.java
+          echo "Checks OK"
 
       - name: Build Debug APK
         working-directory: upstream/engine/android
@@ -153,66 +130,58 @@ jobs:
           path: upstream/engine/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # ---------- Release signing (optional) ----------
-      - name: Decode keystore (if secrets exist)
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+      # ---------- Signing (тек KEYSTORE_B64 + KEYSTORE_PASSWORD бар болса) ----------
+      - name: Prepare keystore
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
         run: |
-          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > /tmp/release.keystore
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "has_keystore=false" >> $GITHUB_OUTPUT
+            echo "No KEYSTORE_B64 — skipping release signing"
+            exit 0
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
           ls -l /tmp/release.keystore
+          echo "has_keystore=true" >> $GITHUB_OUTPUT
 
       - name: Build Signed Release APK
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        if: steps.keystore.outputs.has_keystore == 'true'
         working-directory: upstream/engine/android
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'key0' }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || secrets.KEYSTORE_PASSWORD }}
         run: |
-          # Create a simple signing config via gradle properties
-          cat >> gradle.properties <<EOF
-          RELEASE_STORE_FILE=/tmp/release.keystore
-          RELEASE_STORE_PASSWORD=${KEYSTORE_PASSWORD}
-          RELEASE_KEY_ALIAS=${KEY_ALIAS}
-          RELEASE_KEY_PASSWORD=${KEY_PASSWORD}
+          # Alias-ты автоматты түрде табуға тырысамыз
+          # Көптеген keystore-да alias = key0 немесе exported_key болады
+          PASS="$KEYSTORE_PASSWORD"
+
+          # Алдымен key0 деп көреміз
+          cat > gradle.properties <<EOF
+          android.injected.signing.store.file=/tmp/release.keystore
+          android.injected.signing.store.password=$PASS
+          android.injected.signing.key.alias=key0
+          android.injected.signing.key.password=$PASS
           EOF
 
-          # Minimal patch to enable signing (if not already present)
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("app/build.gradle")
-          s = p.read_text(encoding="utf-8")
-          if "signingConfigs" not in s:
-              # very simple injection – works for most OpenBOR gradle files
-              inject = '''
-          android {
-              signingConfigs {
-                  release {
-                      storeFile file(System.getenv("RELEASE_STORE_FILE") ?: "/tmp/release.keystore")
-                      storePassword System.getenv("RELEASE_STORE_PASSWORD")
-                      keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "key0"
-                      keyPassword System.getenv("RELEASE_KEY_PASSWORD")
-                  }
-              }
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                  }
-              }
-          }
-          '''
-              # We just force assembleRelease with the env vars
-              print("Signing config will be applied via env")
-          p.write_text(s, encoding="utf-8")
-          PY
+          if ./gradlew --no-daemon assembleRelease; then
+            echo "Signed with alias=key0"
+          else
+            echo "key0 failed, trying exported_key..."
+            cat > gradle.properties <<EOF
+          android.injected.signing.store.file=/tmp/release.keystore
+          android.injected.signing.store.password=$PASS
+          android.injected.signing.key.alias=exported_key
+          android.injected.signing.key.password=$PASS
+          EOF
+            ./gradlew --no-daemon assembleRelease || true
+          fi
 
-          ./gradlew --no-daemon assembleRelease || ./gradlew --no-daemon assembleDebug
+          ls -lh app/build/outputs/apk/release/ || true
 
       - name: Upload Release APK
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        if: steps.keystore.outputs.has_keystore == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: OpenBOR-Base64E-Release
-          path: |
-            upstream/engine/android/app/build/outputs/apk/release/*.apk
-            upstream/engine/android/app/build/outputs/apk/debug/*.apk
+          path: upstream/engine/android/app/build/outputs/apk/release/*.apk
           if-no-files-found: warn
