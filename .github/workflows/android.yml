@@ -1,4 +1,3 @@
-
 name: Build Base64E OpenBOR APK
 
 on:
@@ -13,6 +12,7 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout overlay
         uses: actions/checkout@v4
@@ -30,21 +30,46 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Download game PAK from Google Drive
+        run: |
+          python -m pip install --disable-pip-version-check gdown
+          mkdir -p assets
+
+          gdown --fuzzy \
+            "https://drive.google.com/file/d/1cxVmYH6uGaXtSqcde4RffvIkmcWddsiB/view?usp=drivesdk" \
+            -O assets/base64e-game.pak
+
+          if [ ! -s assets/base64e-game.pak ]; then
+            echo "::error::Game file was not downloaded or is empty."
+            exit 1
+          fi
+
+          echo "Downloaded game file:"
+          ls -lh assets/base64e-game.pak
+          file assets/base64e-game.pak
+
       - name: Apply Base64E changes
         run: python3 scripts/patch_upstream.py
 
       - name: Bundle game files
         shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p upstream/engine/android/app/src/main/assets
-          shopt -s nullglob
-          files=(assets/*.pak assets/*.PAK)
-          if (( ${#files[@]} > 0 )); then
-            cp "${files[@]}" upstream/engine/android/app/src/main/assets/
-            echo "Bundled ${#files[@]} game file(s)"
-          else
-            echo "No PAK file found; APK will build without a bundled game."
+
+          shopt -s nullglob nocaseglob
+          files=(assets/*.pak)
+
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::No PAK file found in assets/"
+            exit 1
           fi
+
+          cp "${files[@]}" upstream/engine/android/app/src/main/assets/
+
+          echo "Bundled ${#files[@]} game file(s):"
+          ls -lh upstream/engine/android/app/src/main/assets/
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -58,7 +83,11 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android packages
-        run: sdkmanager "platforms;android-35" "build-tools;36.0.0" "ndk;21.4.7075529"
+        run: |
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;36.0.0" \
+            "ndk;21.4.7075529"
 
       - name: Generate version
         working-directory: upstream/engine
