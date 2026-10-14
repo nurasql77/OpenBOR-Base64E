@@ -35,16 +35,17 @@ jobs:
           python -m pip install --disable-pip-version-check gdown
           mkdir -p assets
 
-          gdown --fuzzy \
-            "https://drive.google.com/file/d/1cxVmYH6uGaXtSqcde4RffvIkmcWddsiB/view?usp=drivesdk" \
-            -O assets/base64e-game.pak
+          gdown "1cxVmYH6uGaXtSqcde4RffvIkmcWddsiB" \
+            -O assets/base64e-game.pak \
+            --retries 3 \
+            --timeout 60
 
           if [ ! -s assets/base64e-game.pak ]; then
-            echo "::error::Game file was not downloaded or is empty."
+            echo "::error::Game file download failed or file is empty."
             exit 1
           fi
 
-          echo "Downloaded game file:"
+          echo "Downloaded file:"
           ls -lh assets/base64e-game.pak
           file assets/base64e-game.pak
 
