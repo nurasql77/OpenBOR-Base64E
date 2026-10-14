@@ -1,19 +1,136 @@
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
-# Replace the original Android launcher.
-launcher_source = Path("app/LauncherActivity.java").read_text(
-    encoding="utf-8"
-)
-launcher_target = Path(
-    "upstream/engine/android/app/src/main/java/"
+ROOT = Path(".")
+ANDROID_NS = "http://schemas.android.com/apk/res/android"
+
+ET.register_namespace("android", ANDROID_NS)
+
+# 1. Кастом мәзірді OpenBOR Android жобасына көшіру.
+launcher_source = ROOT / "app/LauncherActivity.java"
+launcher_target = (
+    ROOT / "upstream/engine/android/app/src/main/java/"
     "org/openbor/engine/LauncherActivity.java"
 )
-launcher_target.write_text(launcher_source, encoding="utf-8")
 
-# Patch native touch controls.
-video = Path("upstream/engine/android/app/jni/openbor/video.c")
-source = video.read_text(encoding="utf-8")
+if not launcher_source.is_file():
+    raise SystemExit(f"ERROR: Missing launcher: {launcher_source}")
+
+source_text = launcher_source.read_text(encoding="utf-8")
+
+if "private void showMenu()" not in source_text:
+    raise SystemExit("ERROR: Custom menu method is missing.")
+
+if "setContentView(root)" not in source_text:
+    raise SystemExit("ERROR: Custom menu layout is missing.")
+
+# OpenBOR Android native бөлігі versionName=1.0.0
+# болғанда PAK файлын 1.0.0.pak атауымен күтеді.
+old_pak_path = "new File(paks, pak)"
+new_pak_path = 'new File(paks, "1.0.0.pak")'
+
+if old_pak_path not in source_text:
+    raise SystemExit("ERROR: PAK copy line was not found.")
+
+source_text = source_text.replace(
+    old_pak_path, new_pak_path, 1
+)
+
+launcher_target.parent.mkdir(
+    parents=True, exist_ok=True
+)
+launcher_target.write_text(
+    source_text, encoding="utf-8"
+)
+
+# 2. AndroidManifest.xml ішіндегі іске қосу Activity-сін түзету.
+manifest_path = (
+    ROOT
+    / "upstream/engine/android/app/src/main/AndroidManifest.xml"
+)
+
+if not manifest_path.is_file():
+    raise SystemExit("ERROR: AndroidManifest.xml is missing.")
+
+tree = ET.parse(manifest_path)
+manifest = tree.getroot()
+application = manifest.find("application")
+
+if application is None:
+    raise SystemExit("ERROR: <application> element is missing.")
+
+name_attr = f"{{{ANDROID_NS}}}name"
+exported_attr = f"{{{ANDROID_NS}}}exported"
+theme_attr = f"{{{ANDROID_NS}}}theme"
+orientation_attr = f"{{{ANDROID_NS}}}screenOrientation"
+
+launcher_activity = None
+
+# Ескі MAIN/LAUNCHER фильтрлерін алып тастау.
+for activity in application.findall("activity"):
+    activity_name = activity.get(name_attr, "")
+
+    if activity_name == "org.openbor.engine.LauncherActivity":
+        launcher_activity = activity
+
+    for intent_filter in list(
+        activity.findall("intent-filter")
+    ):
+        actions = {
+            node.get(name_attr, "")
+            for node in intent_filter.findall("action")
+        }
+        categories = {
+            node.get(name_attr, "")
+            for node in intent_filter.findall("category")
+        }
+
+        if (
+            "android.intent.action.MAIN" in actions
+            and "android.intent.category.LAUNCHER" in categories
+        ):
+            activity.remove(intent_filter)
+
+if launcher_activity is None:
+    launcher_activity = ET.SubElement(
+        application, "activity"
+    )
+    launcher_activity.set(
+        name_attr, "org.openbor.engine.LauncherActivity"
+    )
+
+launcher_activity.set(exported_attr, "true")
+launcher_activity.set(orientation_attr, "landscape")
+
+# Кастом мәзірге native ойынның тақырыбын қолданбау.
+launcher_activity.set(
+    theme_attr, "@android:style/Theme.Material.NoActionBar"
+)
+
+intent_filter = ET.SubElement(
+    launcher_activity, "intent-filter"
+)
+
+action = ET.SubElement(intent_filter, "action")
+action.set(name_attr, "android.intent.action.MAIN")
+
+category = ET.SubElement(intent_filter, "category")
+category.set(name_attr, "android.intent.category.LAUNCHER")
+
+tree.write(
+    manifest_path,
+    encoding="utf-8",
+    xml_declaration=True
+)
+
+# 3. Сенсорлық басқару өлшемі мен мөлдірлігін түзету.
+video_path = (
+    ROOT
+    / "upstream/engine/android/app/jni/openbor/video.c"
+)
+
+source = video_path.read_text(encoding="utf-8")
 
 needle = """static void setup_touch()
 {
@@ -39,6 +156,7 @@ static void load_touch_settings(void)
              "%s/touch_settings.txt", savesDir);
 
     file = fopen(filename, "r");
+
     if (file)
     {
         if (fscanf(file, "%d%d", &scale, &opacity) != 2)
@@ -46,6 +164,7 @@ static void load_touch_settings(void)
             scale = 100;
             opacity = 65;
         }
+
         fclose(file);
     }
 
@@ -72,13 +191,16 @@ static void setup_touch()
 
 if needle not in source:
     raise SystemExit(
-        "ERROR: setup_touch() pattern not found; "
-        "upstream source may have changed."
+        "ERROR: setup_touch() pattern not found in video.c."
     )
 
 source = source.replace(needle, replacement, 1)
 
-needle = "SDL_SetTextureAlphaMod(buttons, touchstates[i] ? 128 : 64);"
+needle = (
+    "SDL_SetTextureAlphaMod(buttons, "
+    "touchstates[i] ? 128 : 64);"
+)
+
 replacement = (
     "SDL_SetTextureAlphaMod(buttons, touchstates[i] "
     "? (128 * touch_opacity_percent / 100) "
@@ -87,10 +209,51 @@ replacement = (
 
 if needle not in source:
     raise SystemExit(
-        "ERROR: touch opacity pattern not found."
+        "ERROR: Touch opacity pattern not found."
     )
 
 source = source.replace(needle, replacement, 1)
-video.write_text(source, encoding="utf-8")
+video_path.write_text(source, encoding="utf-8")
+
+# 4. Жинақтауға дейін іске қосу Activity-сін тексеру.
+installed_launcher = launcher_target.read_text(
+    encoding="utf-8"
+)
+
+if "private void showMenu()" not in installed_launcher:
+    raise SystemExit(
+        "ERROR: Custom menu was not installed."
+    )
+
+check_tree = ET.parse(manifest_path)
+check_app = check_tree.getroot().find("application")
+launchers = []
+
+for activity in check_app.findall("activity"):
+    for intent_filter in activity.findall("intent-filter"):
+        actions = {
+            node.get(name_attr, "")
+            for node in intent_filter.findall("action")
+        }
+        categories = {
+            node.get(name_attr, "")
+            for node in intent_filter.findall("category")
+        }
+
+        if (
+            "android.intent.action.MAIN" in actions
+            and "android.intent.category.LAUNCHER" in categories
+        ):
+            launchers.append(activity.get(name_attr, ""))
+
+expected = ["org.openbor.engine.LauncherActivity"]
+
+if launchers != expected:
+    raise SystemExit(
+        f"ERROR: Wrong launcher activity: {launchers}"
+    )
 
 print("Base64E patch applied.")
+print("Custom menu source verified.")
+print("LauncherActivity entry point verified.")
+print("PAK destination set to 1.0.0.pak.")
