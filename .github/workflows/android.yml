@@ -1,3 +1,4 @@
+
 name: Build Base64E OpenBOR APK
 
 on:
@@ -31,7 +32,10 @@ jobs:
           python-version: "3.x"
 
       - name: Download game PAK from Google Drive
+        shell: bash
         run: |
+          set -euo pipefail
+
           python -m pip install --disable-pip-version-check gdown
           mkdir -p assets
 
@@ -41,36 +45,96 @@ jobs:
             --timeout 60
 
           if [ ! -s assets/base64e-game.pak ]; then
-            echo "::error::Game file download failed or file is empty."
+            echo "::error::Game PAK download failed or file is empty."
             exit 1
           fi
 
-          echo "Downloaded file:"
+          echo "Downloaded PAK:"
           ls -lh assets/base64e-game.pak
           file assets/base64e-game.pak
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("assets/base64e-game.pak")
+          with p.open("rb") as f:
+              header = f.read(8)
+
+          if len(header) != 8 or header[:4] != b"PACK":
+              raise SystemExit(
+                  f"ERROR: Unexpected OpenBOR PAK header: {header!r}"
+              )
+
+          format_id = int.from_bytes(header[4:8], "little")
+          if format_id not in (0, 1):
+              raise SystemExit(
+                  f"ERROR: Unsupported OpenBOR PAK format ID: {format_id}"
+              )
+
+          print(f"OpenBOR PAK header verified; format ID: {format_id}")
+          PY
 
       - name: Apply Base64E changes
         run: python3 scripts/patch_upstream.py
 
-      - name: Bundle game files
+      - name: Configure standalone game package
         shell: bash
         run: |
           set -euo pipefail
 
-          mkdir -p upstream/engine/android/app/src/main/assets
+          GRADLE_FILE="upstream/engine/android/app/build.gradle"
 
-          shopt -s nullglob nocaseglob
-          files=(assets/*.pak)
+          test -f "$GRADLE_FILE"
 
-          if (( ${#files[@]} == 0 )); then
-            echo "::error::No PAK file found in assets/"
-            exit 1
-          fi
+          # Keep the Java namespace intact; use a distinct Android
+          # application ID so OpenBOR runs as a standalone game.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
 
-          cp "${files[@]}" upstream/engine/android/app/src/main/assets/
+          p = Path("upstream/engine/android/app/build.gradle")
+          s = p.read_text(encoding="utf-8")
 
-          echo "Bundled ${#files[@]} game file(s):"
-          ls -lh upstream/engine/android/app/src/main/assets/
+          pattern = r'(?m)^(\s*applicationId\s+)"[^"]+"'
+          updated, count = re.subn(
+              pattern,
+              r'\1"com.base64e.openbor"',
+              s,
+              count=1
+          )
+
+          if count != 1:
+              raise SystemExit(
+                  "ERROR: Could not uniquely update applicationId."
+              )
+
+          if 'versionName "1.0.0"' not in updated:
+              raise SystemExit(
+                  "ERROR: Expected versionName 1.0.0 was not found."
+              )
+
+          p.write_text(updated, encoding="utf-8")
+          print("Standalone applicationId configured.")
+          print("Java namespace remains org.openbor.engine.")
+          print("Game PAK destination name: 1.0.0.pak")
+          PY
+
+          grep -nE 'applicationId|namespace|versionName' "$GRADLE_FILE"
+
+      - name: Bundle game PAK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEST="upstream/engine/android/app/src/main/assets"
+          mkdir -p "$DEST"
+
+          cp assets/base64e-game.pak "$DEST/base64e-game.pak"
+
+          test -s "$DEST/base64e-game.pak"
+
+          echo "Bundled game asset:"
+          ls -lh "$DEST/base64e-game.pak"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -93,6 +157,22 @@ jobs:
       - name: Generate version
         working-directory: upstream/engine
         run: bash version.sh
+
+      - name: Verify Android package and PAK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -q 'applicationId "com.base64e.openbor"' \
+            upstream/engine/android/app/build.gradle
+
+          grep -q 'versionName "1.0.0"' \
+            upstream/engine/android/app/build.gradle
+
+          test -s \
+            upstream/engine/android/app/src/main/assets/base64e-game.pak
+
+          echo "Pre-build checks passed."
 
       - name: Build APK
         working-directory: upstream/engine/android
