@@ -1,0 +1,78 @@
+
+name: Build Base64E OpenBOR APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout overlay
+        uses: actions/checkout@v4
+
+      - name: Checkout OpenBOR
+        uses: actions/checkout@v4
+        with:
+          repository: DCurrent/openbor
+          ref: master
+          path: upstream
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Apply Base64E changes
+        run: python3 scripts/patch_upstream.py
+
+      - name: Bundle game files
+        shell: bash
+        run: |
+          mkdir -p upstream/engine/android/app/src/main/assets
+          shopt -s nullglob
+          files=(assets/*.pak assets/*.PAK)
+          if (( ${#files[@]} > 0 )); then
+            cp "${files[@]}" upstream/engine/android/app/src/main/assets/
+            echo "Bundled ${#files[@]} game file(s)"
+          else
+            echo "No PAK file found; APK will build without a bundled game."
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: upstream/engine/android/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android packages
+        run: sdkmanager "platforms;android-35" "build-tools;36.0.0" "ndk;21.4.7075529"
+
+      - name: Generate version
+        working-directory: upstream/engine
+        run: bash version.sh
+
+      - name: Build APK
+        working-directory: upstream/engine/android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon clean assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenBOR-Base64E-Android-arm64
+          path: upstream/engine/android/app/build/outputs/apk/debug/OpenBOR.apk
+          if-no-files-found: error
