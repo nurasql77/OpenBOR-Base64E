@@ -7,7 +7,7 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID_NS)
 
 # ------------------------------------------------------------------
-# 1. Base64E автоіске қосу лаунчерін OpenBOR Android жобасына көшіру
+# 1. Base64E мәзірін OpenBOR Android жобасына көшіру
 # ------------------------------------------------------------------
 launcher_source = ROOT / "app/LauncherActivity.java"
 launcher_target = (
@@ -20,11 +20,16 @@ if not launcher_source.is_file():
 
 source_text = launcher_source.read_text(encoding="utf-8")
 
-# The only game is bundled inside the APK and copied to the private Paks folder.
+# Preserve the custom language menu and control settings, but only launch
+# the bundled game after the user taps the Start button.
+if "private void showMenu()" not in source_text:
+    raise SystemExit("ERROR: Base64E menu is missing.")
+if 'private void startGame()' not in source_text:
+    raise SystemExit("ERROR: Start game button handler is missing.")
 if 'getAssets().open("base64e-game.pak")' not in source_text:
     raise SystemExit("ERROR: Launcher does not install the bundled Base64E PAK.")
-if 'new File(paksDir, "base64e-game.pak")' not in source_text:
-    raise SystemExit("ERROR: Launcher does not install the bundled PAK under its expected name.")
+if 'new File(paks, "base64e-game.pak")' not in source_text:
+    raise SystemExit("ERROR: Launcher does not copy PAK to OpenBOR's Paks folder.")
 if "new Intent(this, GameActivity.class)" not in source_text:
     raise SystemExit("ERROR: Launcher does not start GameActivity.")
 
@@ -192,6 +197,8 @@ video_path.write_text(source, encoding="utf-8")
 # ------------------------------------------------------------------
 installed_launcher = launcher_target.read_text(encoding="utf-8")
 
+if "private void showMenu()" not in installed_launcher:
+    raise SystemExit("ERROR: Base64E menu was not installed.")
 if 'getAssets().open("base64e-game.pak")' not in installed_launcher:
     raise SystemExit("ERROR: Bundled Base64E PAK installation was not installed.")
 
@@ -222,7 +229,7 @@ if launchers != expected:
     raise SystemExit(f"ERROR: Wrong launcher activity: {launchers}")
 
 print("Base64E patch applied successfully.")
-print("Bundled Base64E PAK auto-install source verified.")
+print("Base64E language menu and control settings verified.")
 print("LauncherActivity entry point verified.")
-print("Bundled PAK and GameActivity launch verified.")
+print("Start button installs bundled PAK and launches GameActivity.")
 print("Touch scale + opacity support added.")
