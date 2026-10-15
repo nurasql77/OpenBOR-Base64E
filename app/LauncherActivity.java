@@ -20,6 +20,7 @@ public class LauncherActivity extends Activity {
     private String lang = "ru";
     private TextView title;
     private Button start, settings;
+    private boolean waitingForGameReturn = false;
 
     private final String[] codes = {"ru", "kk", "en"};
     private final String[] names = {"Русский", "Қазақша", "English"};
@@ -30,6 +31,49 @@ public class LauncherActivity extends Activity {
         prefs = getSharedPreferences("base64e", MODE_PRIVATE);
         lang = prefs.getString("language", "ru");
         showMenu();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (waitingForGameReturn) {
+            waitingForGameReturn = false;
+            showEngineLogs();
+        }
+    }
+
+    private void clearEngineLogs() {
+        File dir = new File(getExternalFilesDir(null), "Logs");
+        if (!dir.exists()) dir.mkdirs();
+        new File(dir, "OpenBorLog.txt").delete();
+        new File(dir, "ScriptLog.txt").delete();
+    }
+
+    private String readTail(File file, int maxChars) {
+        if (!file.isFile()) return "(log file not created)";
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            long start = Math.max(0, raf.length() - maxChars);
+            raf.seek(start);
+            byte[] bytes = new byte[(int)(raf.length() - start)];
+            raf.readFully(bytes);
+            return new String(bytes, "UTF-8");
+        } catch (Exception e) {
+            return "Cannot read log: " + e;
+        }
+    }
+
+    private void showEngineLogs() {
+        File dir = new File(getExternalFilesDir(null), "Logs");
+        String engine = readTail(new File(dir, "OpenBorLog.txt"), 4500);
+        String script = readTail(new File(dir, "ScriptLog.txt"), 1800);
+        String message = "OpenBOR жабылып қалды. Соңғы engine log:\n\n" + engine
+            + "\n\n--- Script log ---\n" + script
+            + "\n\nФайлдар: " + dir.getAbsolutePath();
+        new AlertDialog.Builder(this)
+            .setTitle("OpenBOR диагностикасы")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show();
     }
 
     private String tr(String key) {
@@ -231,7 +275,7 @@ public class LauncherActivity extends Activity {
             if (pak != null) {
                 try (InputStream in = getAssets().open(pak);
                      OutputStream out = new FileOutputStream(
-                         new File(paks, "1.0.0.pak")
+                         new File(paks, pak)
                      )) {
                     byte[] buffer = new byte[8192];
                     int n;
@@ -253,6 +297,8 @@ public class LauncherActivity extends Activity {
                 }
             }
 
+            clearEngineLogs();
+            waitingForGameReturn = true;
             startActivity(new Intent(this, GameActivity.class));
         } catch (Exception e) {
             new AlertDialog.Builder(this)
