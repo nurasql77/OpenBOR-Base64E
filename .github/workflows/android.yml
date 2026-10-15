@@ -99,8 +99,11 @@ jobs:
           grep -q 'applicationId "kz.base64e.openbor1"' upstream/engine/android/app/build.gradle
           test -f upstream/engine/android/app/src/main/java/org/openbor/engine/LauncherActivity.java
           test -f upstream/engine/android/app/src/main/java/org/openbor/engine/GameActivity.java
+          test -f upstream/engine/android/app/src/main/java/org/openbor/engine/Base64EGameActivity.java
+          grep -q 'new Intent(this,Base64EGameActivity.class)' upstream/engine/android/app/src/main/java/org/openbor/engine/LauncherActivity.java
+          grep -q 'org.openbor.engine.Base64EGameActivity' upstream/engine/android/app/src/main/AndroidManifest.xml
           test ! -f upstream/engine/android/app/src/main/assets/base64e-game.pak
-          echo "Native OpenBOR launcher and touch editor checks OK"
+          echo "Original OpenBOR activity preserved; Base64E launcher, PAK argument and touch editor checks OK"
 
       - name: Build Debug APK
         working-directory: upstream/engine/android
