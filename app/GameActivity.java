@@ -127,6 +127,24 @@ public Intent registerReceiver(@Nullable BroadcastReceiver receiver, IntentFilte
     };
   }
 
+  // Pass the selected PAK to OpenBOR's native main(). Without this argument,
+  // sdlport.c enters its internal Menu() instead of loading the selected game.
+  @Override
+  protected String[] getArguments() {
+    Intent intent = getIntent();
+    String name = intent == null ? null : intent.getStringExtra("pak_name");
+    if (name == null || name.isEmpty() || name.contains("/")) {
+      return new String[0];
+    }
+    File pak = new File(new File(getExternalFilesDir(null), "Paks"), name);
+    if (!pak.isFile() || pak.length() <= 0) {
+      Log.e("OpenBOR", "Selected PAK missing or empty: " + pak.getAbsolutePath());
+      return new String[0];
+    }
+    // Native main() changes cwd to the app files root before checking argv[1].
+    return new String[] {"Paks/" + name};
+  }
+
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     // call parent's implementation
