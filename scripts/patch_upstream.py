@@ -165,11 +165,26 @@ if blit_marker not in source:
 source = source.replace(blit_marker, refresh + blit_marker, 1)
 video_path.write_text(source, encoding="utf-8")
 
+# Guard against drifting away from the upstream Android storage layout.
+storage_path = ROOT / "upstream/engine/sdl/sdlport.c"
+storage_source = storage_path.read_text(encoding="utf-8")
+for expected in (
+    'SDL_AndroidGetExternalStoragePath()',
+    'strcat(paksDir, "/Paks")',
+    'strcat(savesDir, "/Saves")',
+    'strcat(logsDir, "/Logs")',
+    'strcat(screenShotsDir, "/ScreenShots")',
+):
+    if expected not in storage_source:
+        raise SystemExit(f"Upstream storage layout changed; missing: {expected}")
+
 # Confirm no game data is embedded and native touch controls remain adjustable.
 if "installEditorButton();" not in (JAVA_DIR / "GameActivity.java").read_text(encoding="utf-8"):
     raise SystemExit("In-game touch editor was not installed")
 if "Intent.ACTION_OPEN_DOCUMENT" not in (JAVA_DIR / "LauncherActivity.java").read_text(encoding="utf-8"):
     raise SystemExit("Game file picker was not installed")
+if 'ensureDataDirs()' not in (JAVA_DIR / "LauncherActivity.java").read_text(encoding="utf-8"):
+    raise SystemExit("Launcher does not prepare native OpenBOR data folders")
 if "base64e-game.pak" in source:
     raise SystemExit("Unexpected bundled game data reference in native video code")
-print("Native OpenBOR overlay applied: minimalist launcher, .pak picker, in-game touch editor.")
+print("Native OpenBOR overlay applied: original Logs/Paks/Saves/ScreenShots layout, minimalist launcher, .pak picker, in-game touch editor.")
