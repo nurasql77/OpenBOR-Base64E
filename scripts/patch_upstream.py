@@ -26,18 +26,11 @@ if "private void showMenu()" not in source_text:
 if "setContentView(root)" not in source_text:
     raise SystemExit("ERROR: Custom menu layout is missing.")
 
-# OpenBOR versionName=1.0.0 болғанда PAK файлын 1.0.0.pak деп күтеді.
-# Idempotent: кейбір launcher нұсқаларында бұл жол бұрыннан түзетілген.
-old_pak_path = "new File(paks, pak)"
-new_pak_path = 'new File(paks, "1.0.0.pak")'
-
-if old_pak_path in source_text:
-    source_text = source_text.replace(old_pak_path, new_pak_path, 1)
-elif new_pak_path not in source_text:
-    raise SystemExit(
-        "ERROR: PAK copy line not recognized; expected either "
-        "'new File(paks, pak)' or 'new File(paks, \"1.0.0.pak\")'."
-    )
+# Keep the original PAK filename. OpenBOR scans ./Paks for supported
+# archives and derives save/config names from the selected archive filename.
+# Renaming every game to 1.0.0.pak is unnecessary and can hide which PAK loaded.
+if "new File(paks, pak)" not in source_text:
+    raise SystemExit("ERROR: Launcher must preserve the original PAK filename.")
 
 launcher_target.parent.mkdir(parents=True, exist_ok=True)
 launcher_target.write_text(source_text, encoding="utf-8")
@@ -235,5 +228,5 @@ if launchers != expected:
 print("Base64E patch applied successfully.")
 print("Custom menu source verified.")
 print("LauncherActivity entry point verified.")
-print("PAK destination set to 1.0.0.pak.")
+print("Original PAK filename preserved.")
 print("Touch scale + opacity support added.")
