@@ -85,11 +85,11 @@ jobs:
           PY
           grep -nE 'applicationId|versionName' upstream/engine/android/app/build.gradle
 
-      - name: Bundle PAK as 1.0.0.pak
+      - name: Bundle PAK with its original filename
         run: |
           mkdir -p upstream/engine/android/app/src/main/assets
-          cp assets/base64e-game.pak upstream/engine/android/app/src/main/assets/1.0.0.pak
-          ls -lh upstream/engine/android/app/src/main/assets/1.0.0.pak
+          cp assets/base64e-game.pak upstream/engine/android/app/src/main/assets/base64e-game.pak
+          ls -lh upstream/engine/android/app/src/main/assets/base64e-game.pak
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -136,7 +136,7 @@ jobs:
       - name: Verify
         run: |
           grep -q 'applicationId "kz.base64e.openbor1"' upstream/engine/android/app/build.gradle
-          test -s upstream/engine/android/app/src/main/assets/1.0.0.pak
+          test -s upstream/engine/android/app/src/main/assets/base64e-game.pak
           test -f upstream/engine/android/app/src/main/java/org/openbor/engine/LauncherActivity.java
           echo "Checks OK"
 
