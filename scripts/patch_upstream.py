@@ -26,11 +26,14 @@ if "private void showMenu()" not in source_text:
 if "setContentView(root)" not in source_text:
     raise SystemExit("ERROR: Custom menu layout is missing.")
 
-# Keep the original PAK filename. OpenBOR scans ./Paks for supported
-# archives and derives save/config names from the selected archive filename.
-# Renaming every game to 1.0.0.pak is unnecessary and can hide which PAK loaded.
-if "new File(paks, pak)" not in source_text:
-    raise SystemExit("ERROR: Launcher must preserve the original PAK filename.")
+# The launcher must open the Android document picker and copy the selected
+# .pak into the app-private Paks directory under its original filename.
+if "Intent.ACTION_OPEN_DOCUMENT" not in source_text:
+    raise SystemExit("ERROR: Launcher does not open the Android PAK picker.")
+if 'endsWith(".pak")' not in source_text:
+    raise SystemExit("ERROR: Launcher does not validate .pak files.")
+if 'new File(paksDir, new File(fileName).getName())' not in source_text:
+    raise SystemExit("ERROR: Launcher does not preserve the selected PAK filename.")
 
 launcher_target.parent.mkdir(parents=True, exist_ok=True)
 launcher_target.write_text(source_text, encoding="utf-8")
@@ -228,5 +231,5 @@ if launchers != expected:
 print("Base64E patch applied successfully.")
 print("Custom menu source verified.")
 print("LauncherActivity entry point verified.")
-print("Original PAK filename preserved.")
+print("Android PAK picker and selected filename verified.")
 print("Touch scale + opacity support added.")
