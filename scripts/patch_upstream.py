@@ -26,14 +26,18 @@ if "private void showMenu()" not in source_text:
 if "setContentView(root)" not in source_text:
     raise SystemExit("ERROR: Custom menu layout is missing.")
 
-# OpenBOR versionName=1.0.0 болғанда PAK файлын 1.0.0.pak деп күтеді
+# OpenBOR versionName=1.0.0 болғанда PAK файлын 1.0.0.pak деп күтеді.
+# Idempotent: кейбір launcher нұсқаларында бұл жол бұрыннан түзетілген.
 old_pak_path = "new File(paks, pak)"
 new_pak_path = 'new File(paks, "1.0.0.pak")'
 
-if old_pak_path not in source_text:
-    raise SystemExit("ERROR: PAK copy line was not found.")
-
-source_text = source_text.replace(old_pak_path, new_pak_path, 1)
+if old_pak_path in source_text:
+    source_text = source_text.replace(old_pak_path, new_pak_path, 1)
+elif new_pak_path not in source_text:
+    raise SystemExit(
+        "ERROR: PAK copy line not recognized; expected either "
+        "'new File(paks, pak)' or 'new File(paks, \"1.0.0.pak\")'."
+    )
 
 launcher_target.parent.mkdir(parents=True, exist_ok=True)
 launcher_target.write_text(source_text, encoding="utf-8")
