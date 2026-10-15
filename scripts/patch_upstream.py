@@ -7,7 +7,7 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID_NS)
 
 # ------------------------------------------------------------------
-# 1. Кастом мәзірді OpenBOR Android жобасына көшіру
+# 1. Base64E автоіске қосу лаунчерін OpenBOR Android жобасына көшіру
 # ------------------------------------------------------------------
 launcher_source = ROOT / "app/LauncherActivity.java"
 launcher_target = (
@@ -20,20 +20,13 @@ if not launcher_source.is_file():
 
 source_text = launcher_source.read_text(encoding="utf-8")
 
-if "private void showMenu()" not in source_text:
-    raise SystemExit("ERROR: Custom menu method is missing.")
-
-if "setContentView(root)" not in source_text:
-    raise SystemExit("ERROR: Custom menu layout is missing.")
-
-# The launcher must open the Android document picker and copy the selected
-# .pak into the app-private Paks directory under its original filename.
-if "Intent.ACTION_OPEN_DOCUMENT" not in source_text:
-    raise SystemExit("ERROR: Launcher does not open the Android PAK picker.")
-if 'endsWith(".pak")' not in source_text:
-    raise SystemExit("ERROR: Launcher does not validate .pak files.")
-if 'new File(paksDir, new File(fileName).getName())' not in source_text:
-    raise SystemExit("ERROR: Launcher does not preserve the selected PAK filename.")
+# The only game is bundled inside the APK and copied to the private Paks folder.
+if 'getAssets().open("base64e-game.pak")' not in source_text:
+    raise SystemExit("ERROR: Launcher does not install the bundled Base64E PAK.")
+if 'new File(paksDir, "base64e-game.pak")' not in source_text:
+    raise SystemExit("ERROR: Launcher does not install the bundled PAK under its expected name.")
+if "new Intent(this, GameActivity.class)" not in source_text:
+    raise SystemExit("ERROR: Launcher does not start GameActivity.")
 
 launcher_target.parent.mkdir(parents=True, exist_ok=True)
 launcher_target.write_text(source_text, encoding="utf-8")
@@ -199,8 +192,8 @@ video_path.write_text(source, encoding="utf-8")
 # ------------------------------------------------------------------
 installed_launcher = launcher_target.read_text(encoding="utf-8")
 
-if "private void showMenu()" not in installed_launcher:
-    raise SystemExit("ERROR: Custom menu was not installed.")
+if 'getAssets().open("base64e-game.pak")' not in installed_launcher:
+    raise SystemExit("ERROR: Bundled Base64E PAK installation was not installed.")
 
 check_tree = ET.parse(manifest_path)
 check_app = check_tree.getroot().find("application")
@@ -229,7 +222,7 @@ if launchers != expected:
     raise SystemExit(f"ERROR: Wrong launcher activity: {launchers}")
 
 print("Base64E patch applied successfully.")
-print("Custom menu source verified.")
+print("Bundled Base64E PAK auto-install source verified.")
 print("LauncherActivity entry point verified.")
-print("Android PAK picker and selected filename verified.")
+print("Bundled PAK and GameActivity launch verified.")
 print("Touch scale + opacity support added.")
