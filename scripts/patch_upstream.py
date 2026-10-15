@@ -7,7 +7,7 @@ ANDROID_NS = "http://schemas.android.com/apk/res/android"
 ET.register_namespace("android", ANDROID_NS)
 
 JAVA_DIR = ROOT / "upstream/engine/android/app/src/main/java/org/openbor/engine"
-for name in ("LauncherActivity.java", "GameActivity.java"):
+for name in ("LauncherActivity.java", "Base64EGameActivity.java"):
     source = ROOT / "app" / name
     target = JAVA_DIR / name
     if not source.is_file():
@@ -15,6 +15,7 @@ for name in ("LauncherActivity.java", "GameActivity.java"):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
+# Preserve upstream GameActivity.java. Base64EGameActivity subclasses it for the PAK argument and touch editor.
 # Make the custom minimalist launcher the Android entry point.
 manifest_path = ROOT / "upstream/engine/android/app/src/main/AndroidManifest.xml"
 tree = ET.parse(manifest_path)
@@ -38,6 +39,21 @@ if launcher is None:
 launcher.set(f"{{{ANDROID_NS}}}exported", "true")
 launcher.set(f"{{{ANDROID_NS}}}screenOrientation", "landscape")
 launcher.set(f"{{{ANDROID_NS}}}theme", "@android:style/Theme.Material.NoActionBar")
+
+# Register the Base64E extension as a separate activity. The upstream GameActivity
+# remains present and is not overwritten by this overlay.
+game_activity = None
+for activity in application.findall("activity"):
+    if activity.get(name_attr, "") == "org.openbor.engine.Base64EGameActivity":
+        game_activity = activity
+        break
+if game_activity is None:
+    game_activity = ET.SubElement(application, "activity")
+game_activity.set(name_attr, "org.openbor.engine.Base64EGameActivity")
+game_activity.set(f"{{{ANDROID_NS}}}exported", "false")
+game_activity.set(f"{{{ANDROID_NS}}}screenOrientation", "landscape")
+game_activity.set(f"{{{ANDROID_NS}}}configChanges", "keyboard|keyboardHidden|orientation|screenSize")
+
 intent = ET.SubElement(launcher, "intent-filter")
 ET.SubElement(intent, "action").set(name_attr, "android.intent.action.MAIN")
 ET.SubElement(intent, "category").set(name_attr, "android.intent.category.LAUNCHER")
@@ -179,12 +195,14 @@ for expected in (
         raise SystemExit(f"Upstream storage layout changed; missing: {expected}")
 
 # Confirm no game data is embedded and native touch controls remain adjustable.
-if "installEditorButton();" not in (JAVA_DIR / "GameActivity.java").read_text(encoding="utf-8"):
+if "installEditorButton();" not in (JAVA_DIR / "Base64EGameActivity.java").read_text(encoding="utf-8"):
     raise SystemExit("In-game touch editor was not installed")
+if "getLibraries()" not in (JAVA_DIR / "GameActivity.java").read_text(encoding="utf-8"):
+    raise SystemExit("Original OpenBOR GameActivity was not preserved")
 if "Intent.ACTION_OPEN_DOCUMENT" not in (JAVA_DIR / "LauncherActivity.java").read_text(encoding="utf-8"):
     raise SystemExit("Game file picker was not installed")
 if 'ensureDataDirs()' not in (JAVA_DIR / "LauncherActivity.java").read_text(encoding="utf-8"):
     raise SystemExit("Launcher does not prepare native OpenBOR data folders")
 if "base64e-game.pak" in source:
     raise SystemExit("Unexpected bundled game data reference in native video code")
-print("Native OpenBOR overlay applied: original Logs/Paks/Saves/ScreenShots layout, minimalist launcher, .pak picker, in-game touch editor.")
+print("Base64E overlay applied over original OpenBOR source: upstream GameActivity preserved; launcher, selected PAK argument and touch editor installed.")
