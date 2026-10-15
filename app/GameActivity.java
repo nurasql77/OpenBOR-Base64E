@@ -248,6 +248,10 @@ public Intent registerReceiver(@Nullable BroadcastReceiver receiver, IntentFilte
               outValues[3] + "\n" + outValues[4] + "\n" + outValues[5] + "\n";
             out.write(data.getBytes("UTF-8"));
           }
+          getSharedPreferences("base64e", MODE_PRIVATE).edit()
+            .putInt("size", outValues[0]).putInt("opacity", outValues[1])
+            .putInt("dpadX", outValues[2]).putInt("dpadY", outValues[3])
+            .putInt("actionX", outValues[4]).putInt("actionY", outValues[5]).apply();
           Toast.makeText(this, "Controls updated", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
           Toast.makeText(this, e.toString(), Toast.LENGTH_LONG).show();
